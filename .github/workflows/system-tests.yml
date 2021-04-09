@@ -9,6 +9,7 @@ jobs:
     name: System Tests
     # Since this has access to secrets, only run if the PR has manually been
     # deemed 'safe' to run by a maintainer.
+    # https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
     if: ${{ github.event.label.name == 'run-ci' }}
     runs-on: ubuntu-latest
     env:
@@ -23,11 +24,24 @@ jobs:
       with:
         ref: ${{ github.event.pull_request.head.sha }}
 
-    - name: set up bigquery credentials
-      run: echo '${{ secrets.GCLOUD_SERVICE_KEY }}' > gcloud-service-key.json
+    - name: checkout ibis
+      uses: actions/checkout@v2
+      with:
+        repository: ibis-project/ibis
+        path: ibis
+
+    - name: install ibis from source
+      run: "${{ matrix.python_version }}" -m pip install -e ./ibis
 
     - name: set up environment
-      run: GOOGLE_BIGQUERY_PROJECT_ID="ibis-gbq" GOOGLE_APPLICATION_CREDENTIALS=gcloud-service-key.json ./ci/setup_env.sh "${{ matrix.python_version }}" "$BACKENDS"
+      run: "${{ matrix.python_version }}" -m pip install -e . ; "${{ matrix.python_version }}" -m pip install pytest
+
+    - name: set up bigquery credentials
+      run: ./ci/decrypt_secret.sh
+      env:
+        GCLOUD_KEY_PASSPHRASE: ${{ secrets.GCLOUD_KEY_PASSPHRASE }}
+    - name:
+      run: echo '${{ secrets.GCLOUD_SERVICE_KEY }}' > gcloud-service-key.json
 
     - name: run tests
-      run: PYTEST_BACKENDS=$BACKENDS PYTEST_EXPRESSION="not hdfs" GOOGLE_BIGQUERY_PROJECT_ID="ibis-gbq" GOOGLE_APPLICATION_CREDENTIALS=gcloud-service-key.json ./ci/run_tests.sh
+      run: GOOGLE_BIGQUERY_PROJECT_ID="ibis-gbq" GOOGLE_APPLICATION_CREDENTIALS="$HOME/secrets/gcloud-service-key.json" "${{ matrix.python_version }}" -m pytest tests
